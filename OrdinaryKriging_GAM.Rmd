@@ -1,0 +1,418 @@
+---
+title: "Kriging with GAM method"
+author: "Octavio Mercado Peña"
+date: "20/03/2023"
+output: html_document 
+
+---
+This workflow consists in creating equispaced gridded data layers by interpolating discrete spatial measurements of oceanographic variables such as temperature, Temperature, oxygen and density. This was done with the regression-kriging spatial prediction technique, using an ordinary kriging and generalized additive model (GAM) available as libraries in R, developed by Pebesma, E. 2004 and Simon Wood (see Wood, S.N. 2017), respectively. As an example, in situ temperature at 10 m depth was used for each of the profiles collected during the "MOBIO-MPH 2020" cruise, conducted by the Instituto de Fomento Pesquero (IFOP) during/in between "month/s" of 2020 on board the vessel Abate Molina. This as part of the research project "Coupling oceanographic and habitat models to assess abundance, distribution, and risk for baleen whales in Chile: Developing new tools for management” undertaken by researchers from Universidad Austral de Chile, Universidad de Valparaíso, Universidad de Concepción, Centro de Investigación Oceanográfica en el Pacífico Sur Oriental (COPAS Coastal), IFOP, Centro de Estudios Avanzados en Zonas Áridas, Scripps Institute of Oceanography, Oregon State University and ENSTA Bretagne. Funded by COPAS Coastal HIT projects 2022.
+  
+    Load required libraries 
+
+```{r,message=FALSE}
+library(sp)
+library(gstat)
+library(dplyr) 
+library(ggplot2)
+library(scales) 
+library(magrittr)
+library(geosphere)
+library(rgeos)
+library(raster)
+library(rgdal)
+library(dismo)
+library(sf)
+library(tmap) 
+library(tmaptools)
+library(maptiles)
+library(mgcv)
+library(readr)
+library(readxl)
+library(rJava)
+library(OpenStreetMap)
+library(corrplot)
+library(rerddap)
+library(rerddapXtracto)
+```
+
+    Root Mean Square Error equation function (RMSE)
+
+```{r}
+RMSE <- function(observed, predicted) {
+  sqrt(mean((predicted - observed)^2, na.rm=TRUE))
+}
+```
+
+    Load our sampling units data
+
+```{r}
+MOBIO2020=read_xlsx("OCE_MOBIO_MPH-2020_646.xlsx",col_names = TRUE)
+data2020 <- MOBIO2020[c("lat(°S)","min Lat","long(°W)","min long","profundidad (m)","temp (°C)")]
+colnames(data2020) <- c("Latitude","min.lat","Longitude","min.long","Depth","Temperature")
+data2020$Latitude <- -data2020$Latitude - data2020$min.lat/60; data2020$Longitude <- -data2020$Longitude - data2020$min.long/60
+data2020 <- data2020[,c("Latitude","Longitude","Depth","Temperature")]
+data2020=data2020[complete.cases(data2020),]
+
+```
+
+    Dataset from ETOPO1 and layer of interest
+
+```{r}
+profInfo <- rerddap::info("etopo360") # extracts information about ETOPO1 topography
+dp = 10 # Layer of interest
+pos <- which(data2020$Depth == dp) # find positions at 10 meters
+data <- data2020[pos,]
+```
+
+    Coordinates transform
+
+```{r}
+coord_data2020 = data.frame(Longitude=data$Longitude,Latitude=data$Latitude)
+coordinates(coord_data2020) <- ~ Longitude + Latitude
+crs(coord_data2020)= "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0" # assigns a coordinate reference system
+UTMcoord_data2020=spTransform(coord_data2020,CRS("+proj=utm +zone=18 +south +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")) # transform to UTM coordinates (X,Y)
+```
+
+    Add X,Y coordinates and transform into a SpatialPointsDataFrame
+
+```{r}
+data$X <- as.numeric(UTMcoord_data2020@coords[,1])
+data$Y <- as.numeric(UTMcoord_data2020@coords[,2])
+pdata=st_as_sf(data, coords = c("Longitude","Latitude"), crs = 4326)
+coordinates(data) <- ~ X + Y
+```
+
+    Set projection
+
+```{r}
+crs(data) = "+proj=utm +zone=18 +south +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+```
+
+    Generate visualization of the data
+
+```{r}
+prov_maptiles = names(maptiles:::maptiles_providers)
+```
+```{r,message=FALSE}
+tmap_mode('view')
+```
+```{r}
+tm_shape(pdata) +
+  tm_basemap(server = "Esri.WorldImagery")+
+  tm_dots(col = "Temperature", size = 0.1)
+```
+
+    Generate empty raster for interpolation, but first create a convex hull around sampling points
+
+```{r}
+data2020_r=chull(data@coords)
+data2020_r <- data@coords[c(data2020_r, data2020_r[1]), ]
+data2020_r=SpatialPolygons(list(Polygons(list(Polygon(data2020_r)), ID=1)))
+```
+
+    Set a buffer area of 2.5km around the polygon
+
+```{r,warning=FALSE}
+data2020_r=gBuffer(data2020_r,width = 2500)
+```
+
+    Create and empty raster based on this buffered area
+
+```{r,warning=FALSE}
+data2020_rv <- raster(extent(data2020_r),res = 7000) # Grid resolution (7km)
+data2020_r <- rasterize(data2020_r, data2020_rv, fun = "last")
+crs(data2020_r)="+proj=utm +zone=18 +south +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+coord_data2020_r<- xyFromCell(data2020_r,1:ncell(data2020_r))
+coord_data2020_r=data.frame(X=coord_data2020_r[,1],Y=coord_data2020_r[,2])
+coordinates(coord_data2020_r) <- ~ X + Y
+crs(coord_data2020_r)="+proj=utm +zone=18 +south +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+llcoord_data2020_r=spTransform(coord_data2020_r,CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+```
+
+    Download depth values for the study area
+
+```{r}
+prof <- rerddapXtracto::rxtracto(profInfo, parameter = 'altitude', xcoord = llcoord_data2020_r@coords[,1], ycoord = llcoord_data2020_r@coords[,2], tcoord = NULL, zcoord = NULL, xlen = 0, ylen = 0)
+depthN=raster(matrix(prof$`mean altitude`,ncol =ncol(data2020_r),nrow =nrow(data2020_r),byrow = T))
+depthN=setExtent(depthN,extent(data2020_r)) # Set the data to "extent" area
+```
+
+    Earth mask and set cells with NA
+
+```{r}
+depthN=mask(depthN,data2020_r)
+depthN[depthN>0]=NA
+rx=ry=depthN
+xy<-xyFromCell(depthN,1:length(depthN))
+rx[]<-xy[,1] #raster of Easting (Longitudee)
+ry[]<-xy[,2] #raster of Northing (Latitudee)
+rx=mask(rx,depthN)#use depth layer to set NA to those cells outside buffer area and in land
+ry=mask(ry,depthN)
+crs(depthN)="+proj=utm +zone=18 +south +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+crs(rx)="+proj=utm +zone=18 +south +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+crs(ry)="+proj=utm +zone=18 +south +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+rst_layers=stack(c(depthN,rx,ry))
+names(rst_layers) <- c("depth", "X", "Y")
+```
+
+    Plot spatial variability
+
+```{r}
+plot(rst_layers)
+```
+```{r}
+prof2 <- rerddapXtracto::rxtracto(profInfo, parameter = 'altitude', xcoord = data$Longitude, ycoord = data$Latitude, tcoord = NULL, zcoord = NULL, xlen = 0, ylen = 0)
+data$depth=prof2$`mean altitude`
+```
+
+    Check for correlations in data
+
+```{r}
+corMat <- cor(data.frame(X=data@coords[,1],Y=data@coords[,2],depth=data$depth,Temperature = data$Temperature))
+corrplot::corrplot.mixed(corMat, number.cex=0.8, tl.cex = 0.9, tl.col = "black",
+                         outline=FALSE, mar=c(0,0,2,2), upper="square", bg=NA)
+```
+
+    Fit a variogram for the data
+    In this case use depth, Easting and Northing as covariates
+
+```{r}
+gs <- gstat(formula=Temperature~Y+depth+X, locations=data)
+v <- variogram(gs,width=10000,cutoff=450000)
+plot(v)
+```
+
+    Modified Variogram
+
+```{r}
+vmod <- vgm(psill=max(v$gamma), model="Exp", range=200000,nugget=min(v$gamma))
+```
+
+    Variogram fitting by Ordinary Least Square
+
+```{r}
+fvmod <- fit.variogram(v, model=vmod,fit.method = 6)
+plot(v,fvmod)
+```
+
+
+    k-fold Cross validation (with k = 10) to determine the best fit with Ordinary Kriging
+
+
+```{r}
+k=10
+evalData <- matrix(NA,nrow = k, ncol = 7,
+                   dimnames = list(1:k,c("OKall","OKY","OKX","OKdp","OKYX","OKYdp","OKXdp")))
+kf_data <- kfold(nrow(data),k)
+
+for (i in 1:k) {
+  cat("K-fold...",i,"of",k,"....\n")
+
+  test <- data[kf_data == i, ]
+  train <- data[kf_data != i, ]
+
+
+  # All coordinates variogram
+
+  gs <- gstat(formula=Temperature~Y + X + depth, locations=train)
+  v <- variogram(gs,width=10000,cutoff=450000)
+  vmod <- vgm(psill=max(v$gamma), model="Exp", range=150000,nugget=min(v$gamma))
+  fvmod <- fit.variogram(v, model=vmod,fit.method = 6)
+  plot(v,fvmod,cutoff = 450000)
+
+  # Ordinary Kriging
+
+  OKall <- krige(formula = gs$data$var1$formula,
+                 locations = train,
+                 model = fvmod,
+                 newdata = test,
+                 debug.level = 0)
+  okall.pred.test <- OKall@data$var1.pred
+  evalData[i,"OKall"]<-RMSE(test$Temperature,okall.pred.test)
+
+  # Y coordinate variogram
+
+  gsY <- gstat(formula=Temperature~Y, locations=train)
+  vY <- variogram(gsY,width=10000,cutoff=250000)
+  vmodY <- vgm(psill=max(vY$gamma), model="Exp", range=200000,nugget=min(vY$gamma))
+  fvmodY <- fit.variogram(vY, model=vmodY,fit.method = 6)
+  plot(vY,fvmodY,cutoff = 450000)
+
+  # Ordinary Kriging
+
+  OKY <- krige(formula = gsY$data$var1$formula,
+               locations = train,
+               model = fvmodY,
+               newdata = test,
+               debug.level = 0)
+  okY.pred.test <- OKY@data$var1.pred
+  evalData[i,"OKY"]<-RMSE(test$Temperature,okY.pred.test)
+
+  # X coordinate variogram
+
+  gsX <- gstat(formula=Temperature~X, locations=train)
+  vX <- variogram(gsX,width=10000,cutoff=250000)
+  vmodX <- vgm(psill=max(vX$gamma), model="Exp", range=100000,nugget=min(vX$gamma))
+  fvmodX <- fit.variogram(vX, model=vmodX,fit.method = 6)
+  plot(vX,fvmodX,cutoff = 200000)
+
+  # Ordinary Kriging
+
+  OKX <- krige(formula = gsX$data$var1$formula,
+               locations = train,
+               model = fvmodX,
+               newdata = test,
+               debug.level = 0)
+  okX.pred.test <- OKX@data$var1.pred
+  evalData[i,"OKX"]<-RMSE(test$Temperature,okX.pred.test)
+
+  # Depth coordinate variogram
+
+  gsdp <- gstat(formula=Temperature~depth, locations=train)
+  vdp <- variogram(gsdp,width=10000,cutoff=250000)
+  vmoddp <- vgm(psill=max(vdp$gamma), model="Exp", range=130000,nugget=min(vdp$gamma))
+  fvmoddp <- fit.variogram(vdp, model=vmoddp,fit.method = 6)
+  plot(vdp,fvmoddp,cutoff = 200000)
+
+  # Ordinary Kriging
+
+  OKdp <- krige(formula = gsdp$data$var1$formula,
+                locations = train,
+                model = fvmoddp,
+                newdata = test,
+                debug.level = 0)
+  okdp.pred.test <- OKdp@data$var1.pred
+  evalData[i,"OKdp"]<-RMSE(test$Temperature,okdp.pred.test)
+
+  # Y-X coordinate variogram
+
+  gsYX <- gstat(formula=Temperature~Y+X, locations=train)
+  vYX <- variogram(gsYX,width=10000,cutoff=250000)
+  vmodYX <- vgm(psill=max(vYX$gamma), model="Exp", range=150000,nugget=min(vYX$gamma))
+  fvmodYX <- fit.variogram(vYX, model=vmodYX,fit.method = 6)
+  plot(vYX,fvmodYX,cutoff = 450000)
+
+  # Ordinary Kriging
+
+  OKYX <- krige(formula = gsYX$data$var1$formula,
+                locations = train,
+                model = fvmodYX,
+                newdata = test,
+                debug.level = 0)
+  okYX.pred.test <- OKYX@data$var1.pred
+  evalData[i,"OKYX"]<-RMSE(test$Temperature,okYX.pred.test)
+
+  # Y-depth coordinate variogram
+
+  gsYdp <- gstat(formula=Temperature~Y+depth, locations=train)
+  vYdp <- variogram(gsYdp,width=10000,cutoff=450000)
+  vmodYdp <- vgm(psill=max(vYdp$gamma), model="Exp", range=150000,nugget=min(vYdp$gamma))
+  fvmodYdp <- fit.variogram(vYdp, model=vmodYdp,fit.method = 6)
+  plot(vYdp,fvmodYdp,cutoff = 450000)
+
+  # Ordinary Kriging
+
+  OKYdp <- krige(formula = gsYdp$data$var1$formula,
+                 locations = train,
+                 model = fvmodYdp,
+                 newdata = test,
+                 debug.level = 0)
+  okYdp.pred.test <- OKYdp@data$var1.pred
+  evalData[i,"OKYdp"]<-RMSE(test$Temperature,okYdp.pred.test)
+
+  # X-depth coordinate variogram
+
+  gsXdp <- gstat(formula=Temperature~X+depth, locations=train)
+  vXdp <- variogram(gsXdp,width=10000,cutoff=250000)
+  vmodXdp <- vgm(psill=max(vXdp$gamma), model="Exp", range=130000,nugget=min(vXdp$gamma))
+  fvmodXdp <- fit.variogram(vXdp, model=vmodXdp,fit.method = 6)
+  plot(vXdp,fvmodXdp,cutoff = 200000)
+
+  # Ordinary Kriging
+
+  OKXdp <- krige(formula = gsXdp$data$var1$formula,
+                 locations = train,
+                 model = fvmodXdp,
+                 newdata = test,
+                 debug.level = 0)
+  okXdp.pred.test <- OKXdp@data$var1.pred
+  evalData[i,"OKXdp"]<-RMSE(test$Temperature,okXdp.pred.test)
+}
+round(apply(evalData,2,FUN = function(x,...) c(mean(x,...),sd(x,...))),3)
+```
+
+    GAM method
+    We use the combination with a lower average RMSE
+
+```{r}
+GAM <- gam(formula = Temperature~ s(X), data = data)
+summary(GAM)
+rstPredGAM <- predict(rst_layers, GAM, type="response")
+rstPixDF <- as(rst_layers[[1]], "SpatialPixelsDataFrame")
+```
+
+    Create a temporary SpatialPointsDF object to store GAM residuals
+
+```{r}
+statPointsTMP <- data
+crs(statPointsTMP) <- crs(rstPixDF)
+statPointsTMP@data <- cbind(statPointsTMP@data, residGAM = resid(GAM))
+```
+
+    Define the kriging parameters and fit the variogram using OLS
+
+```{r}
+formMod <- residGAM ~ 1
+variog <- variogram(formMod, statPointsTMP)
+plot(variog)
+vmod <- vgm(psill=max(variog$gamma), model="Exp", range=120000,nugget=min(variog$gamma))
+variogFitOLS <- fit.variogram(variog, model = vmod,  fit.method = 6)
+```
+
+    Plot the results
+
+```{r}
+plot(variog, variogFitOLS, main="Semi-variogram of GAM residuals")
+```
+
+    Interpolate residuals with kriging
+
+```{r,message=FALSE}
+residKrigMap <- krige(formula = formMod ,
+                      locations = statPointsTMP,
+                      model = variogFitOLS,
+                      newdata = rstPixDF)
+
+residKrigRstLayer <- as(residKrigMap, "RasterLayer")
+gamKrigMap <- rstPredGAM + residKrigRstLayer
+```
+
+    Plot the resulting layer
+
+```{r,warning=FALSE}
+rst_pts <- rasterToPoints(gamKrigMap, spatial = TRUE)
+rst_pts =spTransform(rst_pts,CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+```
+
+    Then to a 'conventional' dataframe
+
+```{r}
+rst_vars  <- data.frame(rst_pts)
+names(rst_vars) <- c("Temperature","x","y")
+```
+```{r}
+pal <- colorRampPalette(c("blue","cyan","green","yellow","red"))
+```
+```{r,message=FALSE}
+bio_map <- openmap(c(-26.2, -69.8), c(-18, -73), zoom = 10,
+                   type = "bing", mergeTiles = TRUE)
+```
+```{r}
+bio_map2 <- openproj(bio_map)
+bio_plt <- OpenStreetMap::autoplot.OpenStreetMap(bio_map2)+
+  geom_point(data=rst_vars,shape=15,aes(colour = Temperature)) +
+  labs(colour = "°C",x = "Longitude",y = "Latitude") +
+  scale_colour_gradientn(colours = pal(50))
+bio_plt
+```
+
