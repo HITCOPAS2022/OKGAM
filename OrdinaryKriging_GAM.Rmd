@@ -219,7 +219,7 @@ for (i in 1:k) {
   fvmod <- fit.variogram(v, model=vmod,fit.method = 6)
   plot(v,fvmod,cutoff = 450000)
 
-  # Ordinary Kriging
+  # Regression Kriging
 
   OKall <- krige(formula = gs$data$var1$formula,
                  locations = train,
@@ -237,7 +237,7 @@ for (i in 1:k) {
   fvmodY <- fit.variogram(vY, model=vmodY,fit.method = 6)
   plot(vY,fvmodY,cutoff = 450000)
 
-  # Ordinary Kriging
+  # Regression Kriging
 
   OKY <- krige(formula = gsY$data$var1$formula,
                locations = train,
@@ -255,7 +255,7 @@ for (i in 1:k) {
   fvmodX <- fit.variogram(vX, model=vmodX,fit.method = 6)
   plot(vX,fvmodX,cutoff = 200000)
 
-  # Ordinary Kriging
+  # Regression Kriging
 
   OKX <- krige(formula = gsX$data$var1$formula,
                locations = train,
@@ -273,7 +273,7 @@ for (i in 1:k) {
   fvmoddp <- fit.variogram(vdp, model=vmoddp,fit.method = 6)
   plot(vdp,fvmoddp,cutoff = 200000)
 
-  # Ordinary Kriging
+  # Regression Kriging
 
   OKdp <- krige(formula = gsdp$data$var1$formula,
                 locations = train,
@@ -291,7 +291,7 @@ for (i in 1:k) {
   fvmodYX <- fit.variogram(vYX, model=vmodYX,fit.method = 6)
   plot(vYX,fvmodYX,cutoff = 450000)
 
-  # Ordinary Kriging
+  # Regression Kriging
 
   OKYX <- krige(formula = gsYX$data$var1$formula,
                 locations = train,
@@ -309,7 +309,7 @@ for (i in 1:k) {
   fvmodYdp <- fit.variogram(vYdp, model=vmodYdp,fit.method = 6)
   plot(vYdp,fvmodYdp,cutoff = 450000)
 
-  # Ordinary Kriging
+  # Regression Kriging
 
   OKYdp <- krige(formula = gsYdp$data$var1$formula,
                  locations = train,
@@ -327,7 +327,7 @@ for (i in 1:k) {
   fvmodXdp <- fit.variogram(vXdp, model=vmodXdp,fit.method = 6)
   plot(vXdp,fvmodXdp,cutoff = 200000)
 
-  # Ordinary Kriging
+  # Regression Kriging
 
   OKXdp <- krige(formula = gsXdp$data$var1$formula,
                  locations = train,
