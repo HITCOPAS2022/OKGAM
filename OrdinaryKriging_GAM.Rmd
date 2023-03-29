@@ -3,8 +3,9 @@ title: "Kriging with GAM method"
 author: "Octavio Mercado Peña"
 date: "20/03/2023"
 output: html_document 
+
 ---
-This workflow consists in creating equispaced gridded data layers by interpolating discrete spatial measurements of oceanographic variables such as temperature, salinity, oxygen and density. This was done with the regression-kriging spatial prediction technique, using an ordinary kriging and generalized additive model (GAM) available as libraries in R, developed by Pebesma, E. 2004 and Simon Wood (see Wood, S.N. 2017), respectively. As an example, in situ temperature at 10 m depth was used for each of the profiles collected during the "MOBIO-MPH 2020" cruise, conducted by the Instituto de Fomento Pesquero (IFOP) during/in between "month/s" of 2020 on board the vessel Abate Molina. This as part of the research project "Coupling oceanographic and habitat models to assess abundance, distribution, and risk for baleen whales in Chile: Developing new tools for management” undertaken by researchers from Universidad Austral de Chile, Universidad de Valparaíso, Universidad de Concepción, Centro de Investigación Oceanográfica en el Pacífico Sur Oriental (COPAS Coastal), IFOP, Centro de Estudios Avanzados en Zonas Áridas, Scripps Institute of Oceanography, Oregon State University and ENSTA Bretagne. Funded by COPAS Coastal HIT projects 2022.
+This workflow consists in creating equispaced gridded data layers by interpolating discrete spatial measurements of oceanographic variables such as temperature, salinity, oxygen and density. This was done with the regression-kriging spatial prediction technique, using an ordinary kriging and generalized additive model (GAM) available as libraries in R, developed by Pebesma, E. 2004 and Simon Wood (see Wood, S.N. 2017), respectively. As an example, in situ temperature at 10 m depth was used for each of the profiles collected during the "MOBIO-MPH 2020" cruise, conducted by the Instituto de Fomento Pesquero (IFOP) between September and October 2020 on board the vessel Abate Molina. This as part of the research project "Coupling oceanographic and habitat models to assess abundance, distribution, and risk for baleen whales in Chile: Developing new tools for management” undertaken by researchers from Universidad Austral de Chile, Universidad de Valparaíso, Universidad de Concepción, Centro de Investigación Oceanográfica en el Pacífico Sur Oriental (COPAS Coastal), IFOP, Centro de Estudios Avanzados en Zonas Áridas, Scripps Institute of Oceanography, Oregon State University and ENSTA Bretagne. Funded by COPAS Coastal HIT projects 2022.
   
     Load required libraries 
 
@@ -177,14 +178,14 @@ corrplot::corrplot.mixed(corMat, number.cex=0.8, tl.cex = 0.9, tl.col = "black",
 
 ```{r}
 gs <- gstat(formula=Temperature~Y+depth+X, locations=data)
-v <- variogram(gs,width=10000,cutoff=450000)
+v <- variogram(gs,width=7000,cutoff=450000)
 plot(v)
 ```
 
     Modified Variogram
 
 ```{r}
-vmod <- vgm(psill=max(v$gamma), model="Exp", range=200000,nugget=min(v$gamma))
+vmod <- vgm(psill=max(v$gamma), model="Exp", range=130000,nugget=min(v$gamma))
 ```
 
     Variogram fitting by Ordinary Least Square
@@ -195,7 +196,7 @@ plot(v,fvmod)
 ```
 
 
-    k-fold Cross validation (with k = 10) to determine the best fit with Ordinary Kriging
+    k-fold Cross validation (with k = 10) to determine the best fit with Kriging
 
 
 ```{r}
@@ -214,7 +215,7 @@ for (i in 1:k) {
   # All coordinates variogram
 
   gs <- gstat(formula=Temperature~Y + X + depth, locations=train)
-  v <- variogram(gs,width=10000,cutoff=450000)
+  v <- variogram(gs,width=7000)
   vmod <- vgm(psill=max(v$gamma), model="Exp", range=150000,nugget=min(v$gamma))
   fvmod <- fit.variogram(v, model=vmod,fit.method = 6)
   plot(v,fvmod,cutoff = 450000)
@@ -232,7 +233,7 @@ for (i in 1:k) {
   # Y coordinate variogram
 
   gsY <- gstat(formula=Temperature~Y, locations=train)
-  vY <- variogram(gsY,width=10000,cutoff=250000)
+  vY <- variogram(gsY,width=7000)
   vmodY <- vgm(psill=max(vY$gamma), model="Exp", range=200000,nugget=min(vY$gamma))
   fvmodY <- fit.variogram(vY, model=vmodY,fit.method = 6)
   plot(vY,fvmodY,cutoff = 450000)
@@ -250,7 +251,7 @@ for (i in 1:k) {
   # X coordinate variogram
 
   gsX <- gstat(formula=Temperature~X, locations=train)
-  vX <- variogram(gsX,width=10000,cutoff=250000)
+  vX <- variogram(gsX,width=7000)
   vmodX <- vgm(psill=max(vX$gamma), model="Exp", range=100000,nugget=min(vX$gamma))
   fvmodX <- fit.variogram(vX, model=vmodX,fit.method = 6)
   plot(vX,fvmodX,cutoff = 200000)
@@ -268,7 +269,7 @@ for (i in 1:k) {
   # Depth coordinate variogram
 
   gsdp <- gstat(formula=Temperature~depth, locations=train)
-  vdp <- variogram(gsdp,width=10000,cutoff=250000)
+  vdp <- variogram(gsdp,width=7000)
   vmoddp <- vgm(psill=max(vdp$gamma), model="Exp", range=130000,nugget=min(vdp$gamma))
   fvmoddp <- fit.variogram(vdp, model=vmoddp,fit.method = 6)
   plot(vdp,fvmoddp,cutoff = 200000)
@@ -286,7 +287,7 @@ for (i in 1:k) {
   # Y-X coordinate variogram
 
   gsYX <- gstat(formula=Temperature~Y+X, locations=train)
-  vYX <- variogram(gsYX,width=10000,cutoff=250000)
+  vYX <- variogram(gsYX,width=7000)
   vmodYX <- vgm(psill=max(vYX$gamma), model="Exp", range=150000,nugget=min(vYX$gamma))
   fvmodYX <- fit.variogram(vYX, model=vmodYX,fit.method = 6)
   plot(vYX,fvmodYX,cutoff = 450000)
@@ -304,7 +305,7 @@ for (i in 1:k) {
   # Y-depth coordinate variogram
 
   gsYdp <- gstat(formula=Temperature~Y+depth, locations=train)
-  vYdp <- variogram(gsYdp,width=10000,cutoff=450000)
+  vYdp <- variogram(gsYdp,width=7000)
   vmodYdp <- vgm(psill=max(vYdp$gamma), model="Exp", range=150000,nugget=min(vYdp$gamma))
   fvmodYdp <- fit.variogram(vYdp, model=vmodYdp,fit.method = 6)
   plot(vYdp,fvmodYdp,cutoff = 450000)
@@ -322,7 +323,7 @@ for (i in 1:k) {
   # X-depth coordinate variogram
 
   gsXdp <- gstat(formula=Temperature~X+depth, locations=train)
-  vXdp <- variogram(gsXdp,width=10000,cutoff=250000)
+  vXdp <- variogram(gsXdp,width=7000)
   vmodXdp <- vgm(psill=max(vXdp$gamma), model="Exp", range=130000,nugget=min(vXdp$gamma))
   fvmodXdp <- fit.variogram(vXdp, model=vmodXdp,fit.method = 6)
   plot(vXdp,fvmodXdp,cutoff = 200000)
@@ -362,8 +363,18 @@ statPointsTMP@data <- cbind(statPointsTMP@data, residGAM = resid(GAM))
 
 ```{r}
 formMod <- residGAM ~ 1
-variog <- variogram(formMod, statPointsTMP)
+variog <- variogram(formMod, statPointsTMP,width = 7000) # 7 km distance (resolution grid)
 plot(variog)
+```
+
+    Choose the best-fit model
+```{r}
+vmod <- vgm(psill=max(variog$gamma), model=c("Sph","Exp","Lin","Gau"), range=120000,nugget=min(variog$gamma))
+variogFitOLS <- fit.variogram(variog, model = vmod,  fit.method = 6)
+variogFitOLS
+```
+
+```{r}
 vmod <- vgm(psill=max(variog$gamma), model="Exp", range=120000,nugget=min(variog$gamma))
 variogFitOLS <- fit.variogram(variog, model = vmod,  fit.method = 6)
 ```
@@ -399,6 +410,10 @@ rst_pts =spTransform(rst_pts,CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS
 rst_vars  <- data.frame(rst_pts)
 names(rst_vars) <- c("Temperature","x","y")
 ```
+```{r}
+```
+
+
 ```{r}
 pal <- colorRampPalette(c("blue","cyan","green","yellow","red"))
 ```
